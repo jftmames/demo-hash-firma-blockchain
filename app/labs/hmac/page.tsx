@@ -7,17 +7,52 @@ export default function HmacLab() {
   const [tag, setTag] = useState<string>('');
   const [verify, setVerify] = useState<string>('');
   const [ok, setOk] = useState<boolean | null>(null);
+  const [status, setStatus] = useState<string>('');
+  const [raw, setRaw] = useState<string>('');
 
   async function compute() {
-    const res = await fetch('/api/hmac', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg }) });
-    const data = await res.json();
-    setTag(data.tag || '');
+    setStatus(''); setRaw(''); setOk(null);
+    try {
+      const res = await fetch('/api/hmac', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      });
+      setStatus(`${res.status} ${res.statusText}`);
+      const data = await res.json().catch(() => ({}));
+      setRaw(JSON.stringify(data, null, 2));
+      if (!res.ok) {
+        setTag('');
+        return;
+      }
+      setTag(data.tag || '');
+    } catch (e: any) {
+      setStatus('REQUEST FAILED');
+      setRaw(String(e?.message || e));
+      setTag('');
+    }
   }
 
   async function check() {
-    const res = await fetch('/api/hmac', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg }) });
-    const data = await res.json();
-    setOk(data.tag === verify);
+    setStatus(''); setRaw('');
+    try {
+      const res = await fetch('/api/hmac', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, tag: verify }) // validación en servidor si existe
+      });
+      setStatus(`${res.status} ${res.statusText}`);
+      const data = await res.json().catch(() => ({}));
+      setRaw(JSON.stringify(data, null, 2));
+      if (!res.ok) { setOk(false); return; }
+      // Si el servidor devuelve 'valid', úsalo; si no, comparamos localmente
+      if (typeof data.valid === 'boolean') setOk(data.valid);
+      else setOk((data.tag || '') === verify);
+    } catch (e: any) {
+      setStatus('REQUEST FAILED');
+      setRaw(String(e?.message || e));
+      setOk(false);
+    }
   }
 
   return (
@@ -29,6 +64,11 @@ export default function HmacLab() {
         <label className="label">Mensaje</label>
         <input className="input" value={msg} onChange={e => setMsg(e.target.value)} />
         <button className="btn" onClick={compute}>Calcular HMAC (servidor)</button>
+        {status && <p className="text-xs text-gray-500">HTTP: {status}</p>}
+        {raw && <>
+          <p className="label">Respuesta del servidor</p>
+          <CodeBlock>{raw}</CodeBlock>
+        </>}
         {tag && <>
           <p className="label">Tag HMAC (hex)</p>
           <CodeBlock>{tag}</CodeBlock>
@@ -55,3 +95,4 @@ export default function HmacLab() {
     </section>
   );
 }
+
