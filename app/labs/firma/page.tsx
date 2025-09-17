@@ -1,4 +1,3 @@
-
 'use client';
 import { useEffect, useState } from 'react';
 import { genECDSA, signECDSA, verifyECDSA, exportJWK, importJWK } from '@/lib/crypto';
@@ -15,9 +14,10 @@ export default function FirmaLab() {
   const [verified, setVerified] = useState<boolean | null>(null);
   const [pubJwk, setPubJwk] = useState('');
   const [privJwk, setPrivJwk] = useState('');
-  const [importStatus, setImportStatus] = useState<string>(''); // feedback visible
+  const [importStatus, setImportStatus] = useState<string>('');
+  const [importing, setImporting] = useState(false);
 
-  // Genera un par inicial para que el lab sea interactivo desde el inicio
+  // Genera un par inicial
   useEffect(() => {
     (async () => {
       const kp = await genECDSA();
@@ -44,41 +44,61 @@ export default function FirmaLab() {
   }
 
   function parseJSON<T>(s: string): T {
-    // Permite espacios/linebreaks; si falla, lanza error claro
-    try { return JSON.parse(s) as T; } catch (e) { throw new Error('JSON inválido. Asegúrate de pegar solo la JWK (sin comillas triples ni texto extra).'); }
+    try {
+      // Limpieza de BOM/carácteres invisibles y comillas “listas”
+      const clean = s.trim()
+        .replace(/^[^\{\[]*/, '') // corta texto antes del JSON
+        .replace(/[^\}\]]*$/, ''); // corta texto después del JSON
+      return JSON.parse(clean) as T;
+    } catch (e) {
+      console.error('parseJSON error', e);
+      alert('JSON inválido. Pega únicamente el objeto JWK (empieza con { y termina con }).');
+      throw e;
+    }
   }
 
   function assertPub(j: any): asserts j is PubJwk {
     if (!j || j.kty !== 'EC' || j.crv !== 'P-256' || typeof j.x !== 'string' || typeof j.y !== 'string') {
-      throw new Error('JWK pública incompleta: se requieren kty=EC, crv=P-256, x, y.');
+      alert('JWK pública incompleta: requiere kty=EC, crv=P-256, x, y.');
+      throw new Error('bad public jwk');
     }
   }
   function assertPriv(j: any): asserts j is PrivJwk {
     assertPub(j);
-    if (typeof j.d !== 'string') throw new Error('JWK privada incompleta: falta el campo d.');
+    if (typeof j.d !== 'string') {
+      alert('JWK privada incompleta: falta el campo d.');
+      throw new Error('bad private jwk');
+    }
   }
 
   async function importKeys() {
-    setImportStatus(''); setSignature(''); setVerified(null);
+    setImportStatus('Importando…');
+    setImporting(true);
+    setSignature('');
+    setVerified(null);
     try {
-      const pub = parseJSON<PubJwk>(pubJwk.trim());
-      const prv = parseJSON<PrivJwk>(privJwk.trim());
+      console.log('[Importar JWK] Iniciando');
+      const pub = parseJSON<PubJwk>(pubJwk);
+      const prv = parseJSON<PrivJwk>(privJwk);
       assertPub(pub); assertPriv(prv);
 
-      // Importamos usando WebCrypto (nuestros helpers ya rellenan crv/kty si faltan)
       const p = await importJWK(pub, ['verify']);
       const s = await importJWK(prv, ['sign']);
       setPair({ publicKey: p, privateKey: s });
+      console.log('[Importar JWK] Claves importadas');
 
-      // Smoke test: firmar/verificar “ok”
+      // Smoke test
       const data = new TextEncoder().encode('ok');
       const sig = await signECDSA(s, data);
       const ok = await verifyECDSA(p, sig, data);
-
-      setImportStatus(ok ? 'Claves importadas correctamente ✓ (prueba de firma/verificación OK)' :
-                           'Claves importadas, pero la verificación ha fallado (¿publica y privada no son pareja?)');
+      setImportStatus(ok ? 'Claves importadas ✓ (prueba de firma/verificación OK)' :
+                           'Claves importadas, pero verificación falló (¿no son pareja?)');
+      if (!ok) alert('Importadas, pero verificación falló. ¿x/y/d corresponden al mismo par?');
     } catch (err: any) {
-      setImportStatus(`Error al importar: ${err?.message || String(err)}`);
+      console.error('[Importar JWK] Error', err);
+      setImportStatus('Error al importar JWK');
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -110,7 +130,15 @@ export default function FirmaLab() {
           <p className="label">Clave privada (JWK)</p>
           <textarea className="input h-48" value={privJwk} onChange={e => setPrivJwk(e.target.value)} />
         </div>
-        <button className="btn" onClick={importKeys} aria-live="polite">Importar JWK</button>
+        <button
+          type="button"
+          className="btn"
+          onClick={importKeys}
+          aria-live="polite"
+          disabled={importing}
+        >
+          {importing ? 'Importando…' : 'Importar JWK'}
+        </button>
         {importStatus && <p className="text-xs text-gray-500 md:col-span-2" role="status">{importStatus}</p>}
       </div>
 
@@ -127,3 +155,4 @@ export default function FirmaLab() {
     </section>
   );
 }
+
