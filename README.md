@@ -4,8 +4,6 @@
 
 **Stack:** Next.js (App Router) + TypeScript + TailwindCSS. Sin CLI local. Despliegue en **Vercel** importando desde **GitHub**. Criptografía en navegador (Web Crypto API) y endpoint **/api/hmac** con `HMAC_KEY` (entorno Vercel).
 
-> ⚠️ **Evita el error `SyntaxError: /index.tsx: Unexpected token (1:0)`**  
-> Este fallo aparece cuando se pega **todo el texto (incluido este README)** en un único fichero llamado `index.tsx`. **No** crees un `index.tsx` con todo dentro. Crea **cada archivo con su ruta exacta** (p. ej., `app/page.tsx`, `app/labs/hash/page.tsx`, etc.).
 
 ## 1) Crear el repositorio (GitHub web)
 1. En GitHub, pulsa **New** → **Repository name**: `demo-hash-firma-blockchain` → **Public** → **Create repository**.
