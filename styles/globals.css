@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light dark; }
+
+html { scroll-behavior: smooth; }
+
+body { @apply bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100; }
+
+a { @apply underline-offset-2 decoration-gray-400 hover:decoration-gray-700; }
+
+.btn { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium shadow-sm border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500; }
+
+.card { @apply rounded-2xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm; }
+
+.input { @apply w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white/70 dark:bg-gray-900/70 p-2; }
+
+.label { @apply text-sm text-gray-600 dark:text-gray-300; }
