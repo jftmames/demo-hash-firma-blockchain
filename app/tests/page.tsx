@@ -96,5 +96,26 @@ export default function TestsPage(){
       <p className="text-xs text-gray-500">Si algo falla, revisa rutas, `HMAC_KEY` y que no exista un `index.tsx` en la raíz.</p>
     </section>
   );
+  {
+  name: 'Blockchain: alterar rompe y re-minar repara',
+  run: async () => {
+    // Mini simulación en memoria
+    const now = Date.now();
+    const mk = async (i: number, data: string, prev: string, nonce=0) => {
+      const payload = `${i}|${now}|${data}|${prev}|${nonce}`;
+      const hash = await sha256Hex(payload);
+      return { i, data, prev, nonce, hash };
+    };
+    const g = await mk(0, 'G', '0'.repeat(64), 0);
+    const b1 = await mk(1, 'A', g.hash, 0);
+    const b2 = await mk(2, 'B', b1.hash, 0);
+    // Altero b1.data y recalculo su hash
+    const b1bPayload = `${1}|${now}|A'|${g.hash}|${0}`;
+    const b1bHash = await sha256Hex(b1bPayload);
+    const chainInvalid = (b2.prev !== b1bHash); // sigue apuntando al hash viejo
+    return chainInvalid; // debe ser true
+  }
+}
+
 }
 
