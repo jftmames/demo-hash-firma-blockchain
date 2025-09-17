@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { genECDSA, signECDSA, verifyECDSA, exportJWK, importJWK } from '@/lib/crypto';
 import { abToBase64, base64ToBytes } from '@/lib/utils';
 import CodeBlock from '@/components/CodeBlock';
@@ -7,9 +7,7 @@ import CodeBlock from '@/components/CodeBlock';
 type PubJwk = JsonWebKey & { kty: 'EC'; crv: 'P-256'; x: string; y: string };
 type PrivJwk = PubJwk & { d: string };
 
-declare global {
-  interface Window { debugImport?: () => Promise<void>; }
-}
+declare global { interface Window { debugImport?: () => Promise<void>; } }
 
 export default function FirmaLab() {
   const [message, setMessage] = useState('Cláusula contractual…');
@@ -21,101 +19,84 @@ export default function FirmaLab() {
   const [importStatus, setImportStatus] = useState<string>('');
   const [importing, setImporting] = useState(false);
 
-  // Genera un par inicial para que el lab sea interactivo desde el inicio
+  // Genera par inicial visible
   useEffect(() => {
     (async () => {
-      console.log('[FirmaLab] init: generando par');
       const kp = await genECDSA();
       setPair(kp);
       setPubJwk(JSON.stringify(await exportJWK(kp.publicKey), null, 2));
       setPrivJwk(JSON.stringify(await exportJWK(kp.privateKey), null, 2));
-      console.log('[FirmaLab] par generado');
     })();
   }, []);
 
-  async function sign() {
+  const sign = useCallback(async () => {
     if (!pair) return;
     setVerified(null);
     const data = new TextEncoder().encode(message);
     const sig = await signECDSA(pair.privateKey, data);
     setSignature(abToBase64(sig));
-  }
+  }, [pair, message]);
 
-  async function verify() {
+  const verify = useCallback(async () => {
     if (!pair) return;
     const data = new TextEncoder().encode(message);
     const sig = base64ToBytes(signature);
-    const ok = await verifyECDSA(pair.publicKey, sig, data);
-    setVerified(ok);
+    setVerified(await verifyECDSA(pair.publicKey, sig, data));
+  }, [pair, message, signature]);
+
+  function cleanJSON(s: string) {
+    // Limpia BOM y texto extraño alrededor
+    return s.replace(/^\uFEFF/, '').trim().replace(/^[^\{\[]*/, '').replace(/[^\}\]]*$/, '');
   }
 
-  function parseJSON<T>(s: string): T {
+  async function doImport(pubStr: string, prvStr: string) {
+    setImportStatus('Importando…'); setImporting(true); setSignature(''); setVerified(null);
     try {
-      const clean = s.trim()
-        .replace(/^[^\{\[]*/, '')
-        .replace(/[^\}\]]*$/, '');
-      return JSON.parse(clean) as T;
-    } catch (e) {
-      console.error('[Importar JWK] parseJSON error', e);
-      setImportStatus('Error: JSON inválido (pega solo el objeto JWK empezando en { y acabando en })');
-      throw e;
-    }
-  }
+      const pub = JSON.parse(cleanJSON(pubStr)) as PubJwk;
+      const prv = JSON.parse(cleanJSON(prvStr)) as PrivJwk;
 
-  function assertPub(j: any): asserts j is PubJwk {
-    if (!j || j.kty !== 'EC' || j.crv !== 'P-256' || typeof j.x !== 'string' || typeof j.y !== 'string') {
-      setImportStatus('Error: JWK pública incompleta (kty=EC, crv=P-256, x, y requeridos)');
-      throw new Error('bad public jwk');
-    }
-  }
-  function assertPriv(j: any): asserts j is PrivJwk {
-    assertPub(j);
-    if (typeof j.d !== 'string') {
-      setImportStatus('Error: JWK privada incompleta (falta d)');
-      throw new Error('bad private jwk');
-    }
-  }
+      // Validaciones mínimas sin setState para evitar estados parciales
+      if (!pub || pub.kty !== 'EC' || pub.crv !== 'P-256' || !pub.x || !pub.y) {
+        alert('JWK pública incompleta: requiere kty=EC, crv=P-256, x, y.');
+        setImportStatus('Error: JWK pública incompleta'); return;
+      }
+      if (!prv || prv.kty !== 'EC' || prv.crv !== 'P-256' || !prv.x || !prv.y || !prv.d) {
+        alert('JWK privada incompleta: falta d o campos básicos.');
+        setImportStatus('Error: JWK privada incompleta'); return;
+      }
 
-  const importKeys = async () => {
-    console.log('[Importar JWK] click');
-    setImportStatus('Importando…');
-    setImporting(true);
-    setSignature('');
-    setVerified(null);
-    try {
-      console.log('[Importar JWK] leyendo textareas');
-      const pub = parseJSON<PubJwk>(pubJwk);
-      const prv = parseJSON<PrivJwk>(privJwk);
-      console.log('[Importar JWK] validando');
-      assertPub(pub); assertPriv(prv);
-
-      console.log('[Importar JWK] importando en WebCrypto');
       const p = await importJWK(pub, ['verify']);
       const s = await importJWK(prv, ['sign']);
       setPair({ publicKey: p, privateKey: s });
 
-      console.log('[Importar JWK] smoke test');
+      // Smoke test
       const data = new TextEncoder().encode('ok');
-      const sig = await signECDSA(s, data);
-      const ok = await verifyECDSA(p, sig, data);
-
-      setImportStatus(ok ? 'Claves importadas ✓ (prueba firma/verificación OK)' :
+      const ok = await verifyECDSA(p, await signECDSA(s, data), data);
+      setImportStatus(ok ? 'Claves importadas ✓ (firma/verificación OK)' :
                            'Claves importadas, pero verificación falló (¿no son pareja?)');
-      console.log('[Importar JWK] resultado:', ok);
-    } catch (err) {
-      console.error('[Importar JWK] ERROR', err);
-      // No hacemos alert(): dejamos el mensaje visible y logs en consola
-      if (!importStatus) setImportStatus('Error al importar JWK (mira la consola para detalle)');
+      if (!ok) alert('Importadas, pero verificación falló. ¿x/y/d corresponden al mismo par?');
+    } catch (e: any) {
+      console.error('[Importar JWK] error', e);
+      alert('JSON inválido. Pega únicamente el objeto JWK (empieza por { y termina en }).');
+      setImportStatus('Error al importar JWK');
     } finally {
       setImporting(false);
     }
-  };
+  }
 
-  // Exponemos el import para dispararlo desde la consola si el click no llega
+  const importKeys = useCallback(async () => doImport(pubJwk, privJwk), [pubJwk, privJwk]);
+
+  // Exponer función para dispararla desde consola si el click no llega
+  useEffect(() => { window.debugImport = importKeys; return () => { delete window.debugImport; }; }, [importKeys]);
+
+  // Atajo de teclado Ctrl/Cmd+Enter para importar
   useEffect(() => {
-    window.debugImport = importKeys;
-    return () => { delete window.debugImport; };
-  }, [pubJwk, privJwk]);
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') importKeys();
+    };
+    window.addEventListener('keyup', h);
+    return () => window.removeEventListener('keyup', h);
+  }, [importKeys]);
 
   return (
     <section className="space-y-4">
@@ -145,30 +126,39 @@ export default function FirmaLab() {
           <p className="label" id="privlabel">Clave privada (JWK)</p>
           <textarea id="privjwk" aria-labelledby="privlabel" className="input h-48" value={privJwk} onChange={e => setPrivJwk(e.target.value)} />
         </div>
-        <button
-          id="importbtn"
-          type="button"
-          className="btn"
-          onClick={importKeys}
-          aria-live="polite"
-          disabled={importing}
-        >
-          {importing ? 'Importando…' : 'Importar JWK'}
-        </button>
+        <div className="flex gap-2 md:col-span-2">
+          <button
+            id="importbtn"
+            type="button"
+            className="btn"
+            onClick={importKeys}
+            onKeyUp={(e) => { if (e.key === 'Enter') importKeys(); }}
+            aria-live="polite"
+            disabled={importing}
+          >
+            {importing ? 'Importando…' : 'Importar JWK'}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={async () => {
+              // Genera un par nuevo y prueba la importación automática (para comprobar que el handler funciona)
+              const kp = await genECDSA();
+              const pub = JSON.stringify(await exportJWK(kp.publicKey));
+              const prv = JSON.stringify(await exportJWK(kp.privateKey));
+              setPubJwk(JSON.stringify(await exportJWK(kp.publicKey), null, 2));
+              setPrivJwk(JSON.stringify(await exportJWK(kp.privateKey), null, 2));
+              await doImport(pub, prv);
+            }}
+            title="Usa un par generado para comprobar que el botón funciona"
+          >
+            Probar importación con claves de ejemplo
+          </button>
+        </div>
         {importStatus && <p className="text-xs text-gray-500 md:col-span-2" role="status">{importStatus}</p>}
-      </div>
-
-      <div className="card">
-        <details>
-          <summary className="cursor-pointer">¿Por qué importa en Derecho?</summary>
-          <ul className="list-disc ml-6 text-sm mt-2">
-            <li>Autenticidad y no repudio (modelo PKI / eIDAS).</li>
-            <li>Separación emisor/verificador sin compartir secretos.</li>
-            <li>Validez sujeta a políticas, certificados y contexto.</li>
-          </ul>
-        </details>
       </div>
     </section>
   );
 }
+
 
