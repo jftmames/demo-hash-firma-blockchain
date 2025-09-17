@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { sha256Hex, genECDSA, signECDSA, verifyECDSA, merkleRoot, merkleProof, verifyProof } from '@/lib/crypto';
+import { sha256Hex, genECDSA, signECDSA, verifyECDSA, merkleRoot, merkleProof, verifyProof, exportJWK, importJWK } from '@/lib/crypto';
 import { base64ToBytes, abToBase64, hexToBytes, percentDiffBits } from '@/lib/utils';
 
 // Pequeño runner de pruebas en el navegador
@@ -22,6 +22,19 @@ const tests: Test[] = [
       const data = new TextEncoder().encode('hola');
       const sig = await signECDSA(kp.privateKey, data);
       return await verifyECDSA(kp.publicKey, sig, data);
+    }
+  },
+  {
+    name: 'Export JWK → Import JWK → sign/verify',
+    run: async () => {
+      const kp = await genECDSA();
+      const pubJ = await exportJWK(kp.publicKey);
+      const prvJ = await exportJWK(kp.privateKey);
+      const pub = await importJWK(pubJ, ['verify']);
+      const prv = await importJWK(prvJ, ['sign']);
+      const data = new TextEncoder().encode('roundtrip');
+      const sig = await signECDSA(prv, data);
+      return await verifyECDSA(pub, sig, data);
     }
   },
   {
@@ -80,7 +93,8 @@ export default function TestsPage(){
           </li>
         ))}
       </ul>
-      <p className="text-xs text-gray-500">Si algo falla, revisa rutas, `HMAC_KEY` y que **no exista** un `index.tsx` en la raíz.</p>
+      <p className="text-xs text-gray-500">Si algo falla, revisa rutas, `HMAC_KEY` y que no exista un `index.tsx` en la raíz.</p>
     </section>
   );
 }
+
