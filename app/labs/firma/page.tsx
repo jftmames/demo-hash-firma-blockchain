@@ -8,7 +8,7 @@ type PubJwk = JsonWebKey & { kty: 'EC'; crv: 'P-256'; x: string; y: string };
 type PrivJwk = PubJwk & { d: string };
 declare global { interface Window { debugImport?: () => Promise<void>; } }
 
-const VERSION = 'vIMPORT-4';
+const VERSION = 'vIMPORT-5';
 
 export default function FirmaLab() {
   const [message, setMessage] = useState('Cláusula contractual…');
@@ -54,12 +54,8 @@ export default function FirmaLab() {
     try {
       const pub = JSON.parse(cleanJSON(pubStr)) as PubJwk;
       const prv = JSON.parse(cleanJSON(prvStr)) as PrivJwk;
-      if (!pub || pub.kty !== 'EC' || pub.crv !== 'P-256' || !pub.x || !pub.y) {
-        alert('JWK pública incompleta: kty=EC, crv=P-256, x, y.'); setImportStatus('Error: pública incompleta'); return;
-      }
-      if (!prv || prv.kty !== 'EC' || prv.crv !== 'P-256' || !prv.x || !prv.y || !prv.d) {
-        alert('JWK privada incompleta: falta d/campos.'); setImportStatus('Error: privada incompleta'); return;
-      }
+      if (!pub || pub.kty !== 'EC' || pub.crv !== 'P-256' || !pub.x || !pub.y) { setImportStatus('Error: pública incompleta'); alert('JWK pública incompleta: kty=EC, crv=P-256, x, y.'); return; }
+      if (!prv || prv.kty !== 'EC' || prv.crv !== 'P-256' || !prv.x || !prv.y || !prv.d) { setImportStatus('Error: privada incompleta'); alert('JWK privada incompleta: falta d/campos.'); return; }
       const p = await importJWK(pub, ['verify']);
       const s = await importJWK(prv, ['sign']);
       setPair({ publicKey: p, privateKey: s });
@@ -69,8 +65,7 @@ export default function FirmaLab() {
       if (!ok) alert('Importadas, pero verificación falló. ¿x/y/d no son pareja?');
     } catch (e: any) {
       console.error('[Importar JWK] error', e);
-      alert('JSON inválido. Pega solo el objeto {…}.');
-      setImportStatus('Error al importar JWK');
+      setImportStatus('Error al importar JWK'); alert('JSON inválido. Pega solo el objeto {…}.');
     } finally {
       setImporting(false);
     }
@@ -134,5 +129,6 @@ export default function FirmaLab() {
     </section>
   );
 }
+
 
 
