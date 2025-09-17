@@ -1,0 +1,17 @@
+## .gitignore
+```gitignore
+# Dependencies
+node_modules
+
+# Builds
+.next
+out
+
+# Env
+.env
+.env.local
+.vercel
+
+# Misc
+.DS_Store
+```
