@@ -4,8 +4,12 @@ import { genECDSA, signECDSA, verifyECDSA, exportJWK, importJWK } from '@/lib/cr
 import { abToBase64, base64ToBytes } from '@/lib/utils';
 import CodeBlock from '@/components/CodeBlock';
 
-type PubJwk = JsonWebKey & { kty: 'EC'; crv: 'P-256'; x: string; y: string; };
+type PubJwk = JsonWebKey & { kty: 'EC'; crv: 'P-256'; x: string; y: string };
 type PrivJwk = PubJwk & { d: string };
+
+declare global {
+  interface Window { debugImport?: () => Promise<void>; }
+}
 
 export default function FirmaLab() {
   const [message, setMessage] = useState('Cláusula contractual…');
@@ -17,13 +21,15 @@ export default function FirmaLab() {
   const [importStatus, setImportStatus] = useState<string>('');
   const [importing, setImporting] = useState(false);
 
-  // Genera un par inicial
+  // Genera un par inicial para que el lab sea interactivo desde el inicio
   useEffect(() => {
     (async () => {
+      console.log('[FirmaLab] init: generando par');
       const kp = await genECDSA();
       setPair(kp);
       setPubJwk(JSON.stringify(await exportJWK(kp.publicKey), null, 2));
       setPrivJwk(JSON.stringify(await exportJWK(kp.privateKey), null, 2));
+      console.log('[FirmaLab] par generado');
     })();
   }, []);
 
@@ -45,62 +51,71 @@ export default function FirmaLab() {
 
   function parseJSON<T>(s: string): T {
     try {
-      // Limpieza de BOM/carácteres invisibles y comillas “listas”
       const clean = s.trim()
-        .replace(/^[^\{\[]*/, '') // corta texto antes del JSON
-        .replace(/[^\}\]]*$/, ''); // corta texto después del JSON
+        .replace(/^[^\{\[]*/, '')
+        .replace(/[^\}\]]*$/, '');
       return JSON.parse(clean) as T;
     } catch (e) {
-      console.error('parseJSON error', e);
-      alert('JSON inválido. Pega únicamente el objeto JWK (empieza con { y termina con }).');
+      console.error('[Importar JWK] parseJSON error', e);
+      setImportStatus('Error: JSON inválido (pega solo el objeto JWK empezando en { y acabando en })');
       throw e;
     }
   }
 
   function assertPub(j: any): asserts j is PubJwk {
     if (!j || j.kty !== 'EC' || j.crv !== 'P-256' || typeof j.x !== 'string' || typeof j.y !== 'string') {
-      alert('JWK pública incompleta: requiere kty=EC, crv=P-256, x, y.');
+      setImportStatus('Error: JWK pública incompleta (kty=EC, crv=P-256, x, y requeridos)');
       throw new Error('bad public jwk');
     }
   }
   function assertPriv(j: any): asserts j is PrivJwk {
     assertPub(j);
     if (typeof j.d !== 'string') {
-      alert('JWK privada incompleta: falta el campo d.');
+      setImportStatus('Error: JWK privada incompleta (falta d)');
       throw new Error('bad private jwk');
     }
   }
 
-  async function importKeys() {
+  const importKeys = async () => {
+    console.log('[Importar JWK] click');
     setImportStatus('Importando…');
     setImporting(true);
     setSignature('');
     setVerified(null);
     try {
-      console.log('[Importar JWK] Iniciando');
+      console.log('[Importar JWK] leyendo textareas');
       const pub = parseJSON<PubJwk>(pubJwk);
       const prv = parseJSON<PrivJwk>(privJwk);
+      console.log('[Importar JWK] validando');
       assertPub(pub); assertPriv(prv);
 
+      console.log('[Importar JWK] importando en WebCrypto');
       const p = await importJWK(pub, ['verify']);
       const s = await importJWK(prv, ['sign']);
       setPair({ publicKey: p, privateKey: s });
-      console.log('[Importar JWK] Claves importadas');
 
-      // Smoke test
+      console.log('[Importar JWK] smoke test');
       const data = new TextEncoder().encode('ok');
       const sig = await signECDSA(s, data);
       const ok = await verifyECDSA(p, sig, data);
-      setImportStatus(ok ? 'Claves importadas ✓ (prueba de firma/verificación OK)' :
+
+      setImportStatus(ok ? 'Claves importadas ✓ (prueba firma/verificación OK)' :
                            'Claves importadas, pero verificación falló (¿no son pareja?)');
-      if (!ok) alert('Importadas, pero verificación falló. ¿x/y/d corresponden al mismo par?');
-    } catch (err: any) {
-      console.error('[Importar JWK] Error', err);
-      setImportStatus('Error al importar JWK');
+      console.log('[Importar JWK] resultado:', ok);
+    } catch (err) {
+      console.error('[Importar JWK] ERROR', err);
+      // No hacemos alert(): dejamos el mensaje visible y logs en consola
+      if (!importStatus) setImportStatus('Error al importar JWK (mira la consola para detalle)');
     } finally {
       setImporting(false);
     }
-  }
+  };
+
+  // Exponemos el import para dispararlo desde la consola si el click no llega
+  useEffect(() => {
+    window.debugImport = importKeys;
+    return () => { delete window.debugImport; };
+  }, [pubJwk, privJwk]);
 
   return (
     <section className="space-y-4">
@@ -108,8 +123,8 @@ export default function FirmaLab() {
       <p className="text-sm">La firma une el mensaje con la clave privada. Cualquiera puede verificar con la clave pública.</p>
 
       <div className="card space-y-2">
-        <label className="label">Mensaje</label>
-        <textarea className="input h-28" value={message} onChange={e => setMessage(e.target.value)} />
+        <label className="label" htmlFor="msg">Mensaje</label>
+        <textarea id="msg" className="input h-28" value={message} onChange={e => setMessage(e.target.value)} />
         <div className="flex gap-2">
           <button className="btn" onClick={sign} aria-label="Firmar" disabled={!pair}>Firmar</button>
           <button className="btn" onClick={verify} aria-label="Verificar" disabled={!pair || !signature}>Verificar</button>
@@ -123,14 +138,15 @@ export default function FirmaLab() {
 
       <div className="card grid md:grid-cols-2 gap-3">
         <div>
-          <p className="label">Clave pública (JWK)</p>
-          <textarea className="input h-48" value={pubJwk} onChange={e => setPubJwk(e.target.value)} />
+          <p className="label" id="publabel">Clave pública (JWK)</p>
+          <textarea id="pubjwk" aria-labelledby="publabel" className="input h-48" value={pubJwk} onChange={e => setPubJwk(e.target.value)} />
         </div>
         <div>
-          <p className="label">Clave privada (JWK)</p>
-          <textarea className="input h-48" value={privJwk} onChange={e => setPrivJwk(e.target.value)} />
+          <p className="label" id="privlabel">Clave privada (JWK)</p>
+          <textarea id="privjwk" aria-labelledby="privlabel" className="input h-48" value={privJwk} onChange={e => setPrivJwk(e.target.value)} />
         </div>
         <button
+          id="importbtn"
           type="button"
           className="btn"
           onClick={importKeys}
