@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import crypto from 'node:crypto';
 
-export const runtime = 'nodejs'; // obligamos Node en Vercel
+export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   const { message, tag } = await req.json().catch(() => ({ message: '' }));
@@ -10,7 +10,6 @@ export async function POST(req: NextRequest) {
 
   const serverTag = crypto.createHmac('sha256', key).update(String(message)).digest('hex');
 
-  // Validación opcional en servidor si el cliente envía `tag`
   let valid: boolean | undefined = undefined;
   if (typeof tag === 'string') {
     try {
